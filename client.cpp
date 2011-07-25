@@ -24,12 +24,13 @@ client::client(string p_address, string dllName)
 	address = p_address;
 
 	//init thread args to NULL
-	recvArgs = NULL;
-	sendArgs = NULL;
-
+	recvArgs = new recvThreadArgs();
+	sendArgs = new sendThreadArgs();
+	sendArgs->socketList = new vector<SOCKET>();
+	dllArgs = new runDllThreadArgs();
 	//load dll
 	dllHandle = loadDll(dllName.c_str());
-
+	stop = false;
 	if(dllHandle == NULL)
 	{
 		cout<<"Unable to load DLL at "<< dllName.c_str() <<endl;
@@ -111,7 +112,7 @@ void client::run()
 	bool poll = true;
 
 	int time_out=GIVE_UP_REMAINING_THREAD_TIME;
-
+	printf("qq... %d \n");
 	//-----------------------------------------------------------------
 	//While socket is still open, change to still have valid sockets
 	//-----------------------------------------------------------------

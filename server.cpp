@@ -190,10 +190,9 @@ void server::run()
 					printf("DISCONNECT!\n");
 				break;
 				case CMD_NETWORK:
-					printf("NETWORK!\n Addr: %ud\n Port: %d\n",message->data.network.address,message->data.network.port);
-					
-					address = "" +message->data.network.address;
+					address = dotFormatAddress(message->data.network.address);
 					port = ""+message->data.network.port;
+					printf("NETWORK!\n Addr: %s\n Port: %s\n",address.c_str(),port.c_str());
 				break;
 				default:
 					printf("STOP!\n");

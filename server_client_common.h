@@ -166,4 +166,5 @@ HINSTANCE loadDll(const char* dllName);
 FARPROC WINAPI loadFunction(HINSTANCE dllHandle, const char* functionName);
 void unloadDll(HINSTANCE dllHandle);
 
+std::string dotFormatAddress(unsigned int raw);
 #endif

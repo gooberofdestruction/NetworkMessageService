@@ -5,6 +5,8 @@
 //Standard Headers
 //-----------------------------------
 #include <iostream>
+#include <sstream>
+
 //-----------------------------------
 //Project Headers
 //-----------------------------------
@@ -359,4 +361,13 @@ void unloadDll(HINSTANCE dllHandle)
 {
 	//free instance
 	FreeLibrary(dllHandle);
+}
+
+
+std::string dotFormatAddress(unsigned int raw)
+{
+	 char* octets = (char*)&raw;
+	 std::stringstream str("");
+	 str<<(int)octets[3]<<"."<<(int)octets[2]<<"."<<(int)octets[1]<<"."<<(int)octets[0];
+	 return str.str();
 }
