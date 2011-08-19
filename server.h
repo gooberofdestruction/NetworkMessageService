@@ -16,7 +16,7 @@
 
 typedef struct listenThreadArgs
 {
-	bool	stop;
+	bool	*stop;
 	SOCKET	listen_sock;
 	void*	instance;
 	void	(*messageHandler) (void* , char*, int);
@@ -40,6 +40,7 @@ private:
 
 	//tell server to stop
 	bool stop;
+	bool connect;
 
 	//windows data structure
 	WSAData wsa_data;

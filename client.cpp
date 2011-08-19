@@ -112,7 +112,6 @@ void client::run()
 	bool poll = true;
 
 	int time_out=GIVE_UP_REMAINING_THREAD_TIME;
-	printf("qq... %d \n");
 	//-----------------------------------------------------------------
 	//While socket is still open, change to still have valid sockets
 	//-----------------------------------------------------------------
@@ -145,8 +144,8 @@ void client::run()
 				break;
 				case CMD_NETWORK:
 					printf("NETWORK!\n Addr: %ud\n Port: %d\n",message->data.network.address,message->data.network.port);
-					address = ""+message->data.network.address;
-					port = ""+message->data.network.port;
+					//address = ""+message->data.network.address;
+					//port = ""+message->data.network.port;
 				break;
 				default:
 					printf("STOP!\n");
@@ -185,25 +184,28 @@ bool client::closeSocket()
 	int iResult=0;
 	// shutdown the connection since no more data will be sent
 	
-	WaitForSingleObject( sendArgs->mutex, INFINITE );
-	while(sendArgs->socketList->begin() != sendArgs->socketList->end())
+	if(sendArgs->mutex != NULL)
 	{
-		cout<<"Destroying "<<*sendArgs->socketList->begin()<<endl;
-		iResult = shutdown(*sendArgs->socketList->begin(), SD_SEND);
-		if (iResult == SOCKET_ERROR) 
+		WaitForSingleObject( sendArgs->mutex, INFINITE );
+		while(sendArgs->socketList->begin() != sendArgs->socketList->end())
 		{
-			cout<<"shutdown failed: "<< WSAGetLastError()<<endl;
+			cout<<"Destroying "<<*sendArgs->socketList->begin()<<endl;
+			iResult = shutdown(*sendArgs->socketList->begin(), SD_SEND);
+			if (iResult == SOCKET_ERROR) 
+			{
+				cout<<"shutdown failed: "<< WSAGetLastError()<<endl;
+				closesocket(*sendArgs->socketList->begin());
+				return false;
+			}
+
+			// cleanup
 			closesocket(*sendArgs->socketList->begin());
-			return false;
+
+			sendArgs->socketList->erase(sendArgs->socketList->begin());
 		}
-
-		// cleanup
-		closesocket(*sendArgs->socketList->begin());
-
-		sendArgs->socketList->erase(sendArgs->socketList->begin());
-	}
 	
-	ReleaseMutex( sendArgs->mutex);
+		ReleaseMutex( sendArgs->mutex);
+	}
 	WSACleanup();
 	return true;
 }//END OF CLOSESOCKET
@@ -234,7 +236,7 @@ bool client::connectToServer(string address)
     hints.ai_protocol = IPPROTO_TCP;
 
     // Resolve the server address and port
-    iResult = getaddrinfo(address.c_str(), CONNECTION_PORT, &hints, &result);
+    iResult = getaddrinfo((PCSTR)address.c_str(), (PCSTR)CONNECTION_PORT, &hints, &result);
     if ( iResult != 0 ) 
 	{
         cout<<"getaddrinfo failed: "<< iResult<<endl;
@@ -267,9 +269,6 @@ bool client::connectToServer(string address)
     }
 
     freeaddrinfo(result);
-
-	recvArgs = new recvThreadArgs();
-	sendArgs = new sendThreadArgs();
 
     if (ConnectSocket == INVALID_SOCKET) 
 	{

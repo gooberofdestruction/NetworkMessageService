@@ -23,7 +23,7 @@ server::server(string dllName)
 
 	//load dll
 	dllHandle = loadDll(dllName.c_str());
-
+	connect = true;
 	if(dllHandle == NULL)
 	{
 		cout<<"Unable to load DLL at "<< dllName.c_str() <<endl;
@@ -59,11 +59,11 @@ server::server(string dllName)
 	sendArgs->instance = dllInstance;
 	sendArgs->mutex = CreateMutex (NULL, FALSE, NULL);
 	sendArgs->socketList = new vector<SOCKET>();
-	sendArgs->stop = &stop;
+	sendArgs->stop = &connect;
 	
 	port = CONNECTION_PORT;
 
-	listenArgs->stop = stop;
+	listenArgs->stop = &connect;
 	listenArgs->listen_sock = NULL;
 	listenArgs->recvArgs = recvArgs;
 	listenArgs->sendArgs = sendArgs;
@@ -139,7 +139,7 @@ server::~server()
 void server::quit()
 {
 	stop = true;
-	listenArgs->stop = true;
+	connect = true;
 }
 
 void server::run()
@@ -180,6 +180,7 @@ void server::run()
 				break;
 				case CMD_CONNECT:
 					printf("CONNECT!\n");
+					connect = false;
 					//start sending on valid connections
 					CreateThread(NULL,NULL,send_service_connection, sendArgs,NULL,NULL);
 
@@ -188,6 +189,7 @@ void server::run()
 				break;
 				case CMD_DISCONNECT:
 					printf("DISCONNECT!\n");
+					connect = true;
 				break;
 				case CMD_NETWORK:
 					address = dotFormatAddress(message->data.network.address);
@@ -231,11 +233,12 @@ DWORD WINAPI listenForConnections(LPVOID args)
 	timeval* poll=NULL;
 
 	hasListenSocket = startListenSocket(listenArgs);
-
+	std::cout<<"CAN HAZ "<<hasListenSocket<<std::endl;
+	std::cout<<"CAN RUN "<<!*(listenArgs->stop)<<std::endl;
 	//--------------------
 	//Run until told to stop
 	//--------------------
-	while(!listenArgs->stop && hasListenSocket )
+	while(!*(listenArgs->stop) && hasListenSocket )
 	{
 		cout<<"Listening..."<<endl;
 		//listen on listen socket
@@ -274,7 +277,7 @@ DWORD WINAPI listenForConnections(LPVOID args)
 				listenArgs->recvArgs->back()->messageHandler = listenArgs->messageHandler;
 				listenArgs->recvArgs->back()->instance = listenArgs->instance;
 				listenArgs->recvArgs->back()->socket = connection_sock;
-				listenArgs->recvArgs->back()->stop = &(listenArgs->stop);
+				listenArgs->recvArgs->back()->stop = listenArgs->stop;
 				//if passed error check
 				//start new thread and pass connected socket to thread
 				CreateThread(NULL,NULL,recv_service_connection,listenArgs->recvArgs->back(),NULL,NULL); 
