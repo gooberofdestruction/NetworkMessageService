@@ -1,6 +1,8 @@
 #ifndef SERVER_CLIENT_DLL_01112011
 #define SERVER_CLIENT_DLL_01112011
 
+#include "ipAddress.h"
+
 //Buffer length of socket
 #define SOCK_BUFFER_LEN 512
 

@@ -24,8 +24,7 @@ using namespace std;
 //		FORWARD DECLARTIONS
 //***********************************
 
-server* my_server;
-client* my_client;
+service* g_service;
 string	dllName;
 
 bool parseCommandLine(int argc, char* argv[])
@@ -46,8 +45,7 @@ bool parseCommandLine(int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
-	my_server=NULL;
-	my_client=NULL;
+	g_service=NULL;
 
 	if(parseCommandLine(argc, argv))
 	{
@@ -60,21 +58,18 @@ int main(int argc, char* argv[])
 
 	if(choice)
 	{
-		my_client = new client("127.0.0.1", dllName);
-		my_client->run();
+		g_service = new client(dllName, "127.0.0.1");
 	}
 	else
 	{
-		my_server = new server(dllName);
-		my_server->run();
+		g_service = new server(dllName, "");
 	}
-	if(my_server!=NULL)
+
+	g_service->run();
+
+	if(g_service!=NULL)
 	{
-		delete my_server;
-	}
-	else if(my_client!=NULL)
-	{
-		delete my_client;
+		delete g_service;
 	}
 
 	return 0;

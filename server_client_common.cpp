@@ -99,7 +99,7 @@ DWORD WINAPI recv_service_connection(LPVOID args)
 			bytes_recvd = recvCompleteMessage(my_sock, buffer, SOCK_BUFFER_LEN, flags);
 
 			//is it a close connection?
-			if (bytes_recvd == CLOSE_SOCKET || bytes_recvd == REMOTE_DLL_STOP)
+			if (bytes_recvd == CLOSE_SOCKET /*|| bytes_recvd == REMOTE_DLL_STOP*/)
 			{
 				//socket is closed. Stop processing.
 			}
@@ -168,14 +168,14 @@ DWORD WINAPI send_service_connection(LPVOID args)
 	//Setting variables to the arguments passed in.
 	//-----------------------------------------------------------------
 	void* instance = ((sendThreadArgs*)args)->instance;
-	std::vector<SOCKET> *sockList = ((sendThreadArgs*)args)->socketList;				//connected socket, change to List*
-	bool (*pollQueue) (void* ) = ((sendThreadArgs*)args)->pollQueue;		//polling function the dll to see if it has messages to send
-	messageQueueStruct* (*nextMessage) (void* ) = ((sendThreadArgs*)args)->nextMessage;	//function to get the next message from the dll
+	std::vector<SOCKET> *sockList = ((sendThreadArgs*)args)->socketList;				//connected socket list
+	bool (*pollQueue) (void* ) = ((sendThreadArgs*)args)->pollQueue;					//polling the dll to see if it has messages to send
+	messageQueueStruct* (*nextMessage) (void* ) = ((sendThreadArgs*)args)->nextMessage;	//get the next message from the dll
 	HANDLE mutex = ((sendThreadArgs*)args)->mutex;
 	bool* stop = ((sendThreadArgs*)args)->stop;
 
 	//-----------------------------------------------------------------
-	//While socket is still open, change to still have valid sockets
+	//While do not stop and no errors have occured
 	//-----------------------------------------------------------------
 	while( !*stop && bytes_sent!=SOCKET_ERROR )
 	{
@@ -183,7 +183,7 @@ DWORD WINAPI send_service_connection(LPVOID args)
 		poll = pollQueue(instance);
 
 		//-----------------------------------------------------------------
-		//While socket is still open and there are messages to send. change to still have valid sockets to send on
+		//While do not stop and still have valid sockets to send on
 		//-----------------------------------------------------------------
 		WaitForSingleObject( mutex, INFINITE );
 
@@ -192,7 +192,7 @@ DWORD WINAPI send_service_connection(LPVOID args)
 			message = nextMessage(instance);
 			
 			//-----------------------------------------------------------------
-			//Send on all my connections.
+			//While do no stop and send on all my connections.
 			//-----------------------------------------------------------------
 			currSock = sockList->begin();
 			while(!*stop && sockList->size() != 0 && currSock != sockList->end())
@@ -209,11 +209,11 @@ DWORD WINAPI send_service_connection(LPVOID args)
 
 					continue;
 				}
-				else if(bytes_sent == INVALID_BUFFER_LENGTH)
-				{
+				//else if(bytes_sent == INVALID_BUFFER_LENGTH)
+				//{
 					//Message being sent is too large for buffer.  Stop processing. change to ignore the message
-					bytes_sent = SOCKET_ERROR;
-				}
+					//bytes_sent = SOCKET_ERROR;
+				//}
 				else if(bytes_sent == CLOSE_SOCKET)
 				{
 					//DLL is trying to stop
@@ -361,13 +361,4 @@ void unloadDll(HINSTANCE dllHandle)
 {
 	//free instance
 	FreeLibrary(dllHandle);
-}
-
-
-std::string dotFormatAddress(unsigned int raw)
-{
-	 char* octets = (char*)&raw;
-	 std::stringstream str("");
-	 str<<(int)octets[3]<<"."<<(int)octets[2]<<"."<<(int)octets[1]<<"."<<(int)octets[0];
-	 return str.str();
 }

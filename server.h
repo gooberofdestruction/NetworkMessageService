@@ -11,17 +11,13 @@
 //-----------------------------------
 //Project Headers
 //-----------------------------------
-#include "server_client_common.h"
-#include "server_client_DLL.h"
+#include "service.h"
 
+class server;
 typedef struct listenThreadArgs
 {
-	bool	*stop;
-	SOCKET	listen_sock;
-	void*	instance;
-	void	(*messageHandler) (void* , char*, int);
-	sendThreadArgs* sendArgs;
-	std::list<recvThreadArgs*> *recvArgs;
+	server* instance;
+	SOCKET listen_sock;
 }listenThreadArgs;
 
 //listen for clients to join
@@ -31,53 +27,19 @@ DWORD WINAPI listenForConnections(LPVOID args);
 bool startListenSocket(listenThreadArgs* listenArgs);
 
 //server class
-class server
+class server : public service
 {
 private:
-
-	std::string port;
-	std::string address;
-
-	//tell server to stop
-	bool stop;
-	bool connect;
-
-	//windows data structure
-	WSAData wsa_data;
-
-	//dll file handle
-	HINSTANCE dllHandle;
-
-	//dll instance
-	void*	dllInstance;
-
-	//dll functions
-	HASMSGFUNC	hasMessagesToSend;
-	NEXTMSG		getNextSend;
-	MSGHANDLER	messageHandler;
-	CREATE		createInstance;
-	DESTROY		destroyInstance;
-	RUN			runInstance;
-	STOP		stopInstance;
-	HASCMDFUNC	hasCmd;
-	NEXTCMD		getNextCmd;
-
-	std::list<recvThreadArgs*>	*recvArgs;
-	sendThreadArgs*			sendArgs;
-	listenThreadArgs*		listenArgs;
-	runDllThreadArgs*		dllArgs;
-
+	listenThreadArgs* listenArgs;
 public:
-	server(std::string dllName);
+	server(std::string dllName, std::string address);
 	~server();
 
 	//start the dll
 	void run();
 	
 	//tell the server to stop
-	void quit();
-
 };
 //execute dll
-DWORD WINAPI server_rund_dll(LPVOID args);
+
 #endif

@@ -17,129 +17,26 @@
 //-----------------------------------
 using namespace std;
 
-server::server(string dllName)
+server::server(string dllName, std::string address)
 {
-	int error_result=0;
-
-	//load dll
-	dllHandle = loadDll(dllName.c_str());
-	connect = true;
-	if(dllHandle == NULL)
+	
+	if(setupDll(dllName) && setupConnections())
 	{
-		cout<<"Unable to load DLL at "<< dllName.c_str() <<endl;
-		stop = true;
-		return;
+		startServices();
 	}
 	else
 	{
-		stop = false;
+		stopServices();
 	}
-
-	//dll functions
-	hasMessagesToSend = (HASMSGFUNC)loadFunction(dllHandle, "hasMessagesToSend");
-	getNextSend = (NEXTMSG)loadFunction(dllHandle, "getNextSend");
-	messageHandler = (MSGHANDLER)loadFunction(dllHandle, "messageHandler");
-	createInstance = (CREATE)loadFunction(dllHandle, "createInstance");
-	destroyInstance = (DESTROY)loadFunction(dllHandle, "destroyInstance");
-	runInstance = (RUN)loadFunction(dllHandle, "runInstance");
-	stopInstance = (STOP)loadFunction(dllHandle, "stopInstance");
-	hasCmd = (HASCMDFUNC)loadFunction(dllHandle, "hasCmdMesssages");
-	getNextCmd = (NEXTCMD)loadFunction(dllHandle, "getNextCmd");
+	listenArgs = new listenThreadArgs();
 	
-	//create an instance
-	createInstance(&dllInstance);
-
-	recvArgs	= new list<recvThreadArgs*>();
-	sendArgs	= new sendThreadArgs();
-	listenArgs	= new listenThreadArgs();
-	dllArgs     = new runDllThreadArgs();
-
-	sendArgs->pollQueue = hasMessagesToSend;
-	sendArgs->nextMessage = getNextSend;
-	sendArgs->instance = dllInstance;
-	sendArgs->mutex = CreateMutex (NULL, FALSE, NULL);
-	sendArgs->socketList = new vector<SOCKET>();
-	sendArgs->stop = &connect;
-	
-	port = CONNECTION_PORT;
-
-	listenArgs->stop = &connect;
+	listenArgs->instance = this;
 	listenArgs->listen_sock = NULL;
-	listenArgs->recvArgs = recvArgs;
-	listenArgs->sendArgs = sendArgs;
-	listenArgs->instance = dllInstance;
-	listenArgs->messageHandler = messageHandler;
 
-	dllArgs->stop = &stop;
-	dllArgs->instance = dllInstance;
-	dllArgs->runInstance = runInstance;
-	dllArgs->stopInstance = stopInstance;
-
-	cout<<"Starting WSA..."<<endl;
-
-	//--------------------
-	// Start WSA
-	//--------------------
-	error_result = WSAStartup(MAKEWORD(2,2), &wsa_data);
-    if (error_result != 0) 
-	{
-        cout<<"WSAStartup failed: "<<error_result<<endl;
-    }
-
-	CreateThread(NULL,NULL,run_dll, dllArgs,NULL,NULL);
 }
 server::~server()
 {
-	int iResult=0;
-
-	quit();
-
-	// shutdown the connection since no more data will be sent
-	WaitForSingleObject( sendArgs->mutex, INFINITE );
-	while(sendArgs->socketList->begin() != sendArgs->socketList->end())
-	{
-		iResult = shutdown(*sendArgs->socketList->begin(), SD_SEND);
-		if (iResult == SOCKET_ERROR) 
-		{
-			cout<<"shutdown failed: "<< WSAGetLastError()<<endl;
-			closesocket(*sendArgs->socketList->begin());
-		}
-
-		// cleanup
-		closesocket(*sendArgs->socketList->begin());
-
-		sendArgs->socketList->erase(sendArgs->socketList->begin());
-	}
-	
-	ReleaseMutex( sendArgs->mutex);
-	delete sendArgs;
-
-	//
-	while(recvArgs->begin() != recvArgs->end())
-	{
-		delete *recvArgs->begin();
-		recvArgs->erase(recvArgs->begin());
-	}
-	delete recvArgs;
-
-	//
-	if(dllHandle != NULL)
-	{
-		//
-		destroyInstance(dllInstance);
-
-		//destroy the server
-		unloadDll(dllHandle);
-	}
-	delete dllInstance;
-
-	WSACleanup();
-}
-
-void server::quit()
-{
-	stop = true;
-	connect = true;
+	destroyData();
 }
 
 void server::run()
@@ -159,46 +56,45 @@ void server::run()
 	//-----------------------------------------------------------------
 	//While socket is still open, change to still have valid sockets
 	//-----------------------------------------------------------------
-	while( !stop )
+	while( isRunning() )
 	{
 		printf("Waiting...\n");
 		//poll the dll for a message
-		poll = hasCmd(dllInstance);
+		poll = dllHasCmd();
 
 		//-----------------------------------------------------------------
 		//While socket is still open and there are messages to send. change to still have valid sockets to send on
 		//-----------------------------------------------------------------
-		if(!stop && poll ) 
+		if( isRunning() && poll ) 
 		{
-			message = getNextCmd(dllInstance);
+			message = dllGetNextCmd();
 
 			switch(message->msg)
 			{
 				case CMD_STOP:
 					printf("STOP!\n");
-					stop = true;
+					stopServices();
 				break;
 				case CMD_CONNECT:
 					printf("CONNECT!\n");
-					connect = false;
+					connectServices();
 					//start sending on valid connections
-					CreateThread(NULL,NULL,send_service_connection, sendArgs,NULL,NULL);
+					startSendService();
 
 					//start listening
 					CreateThread(NULL,NULL,listenForConnections, listenArgs,NULL,NULL); 
 				break;
 				case CMD_DISCONNECT:
 					printf("DISCONNECT!\n");
-					connect = true;
+					disconnectServices();
 				break;
 				case CMD_NETWORK:
-					address = dotFormatAddress(message->data.network.address);
-					port = ""+message->data.network.port;
-					printf("NETWORK!\n Addr: %s\n Port: %s\n",address.c_str(),port.c_str());
+					printf("NETWORK!\n Addr: %d\n Port: %d\n", message->data.network.address, message->data.network.port);
+					setAddress(message->data.network.address,message->data.network.port);
 				break;
 				default:
-					printf("STOP!\n");
-					stop = true;
+					printf("UNRECOGNIZED COMMAND - STOP!\n");
+					stopServices();
 				break;
 			};
 
@@ -233,12 +129,10 @@ DWORD WINAPI listenForConnections(LPVOID args)
 	timeval* poll=NULL;
 
 	hasListenSocket = startListenSocket(listenArgs);
-	std::cout<<"CAN HAZ "<<hasListenSocket<<std::endl;
-	std::cout<<"CAN RUN "<<!*(listenArgs->stop)<<std::endl;
 	//--------------------
 	//Run until told to stop
 	//--------------------
-	while(!*(listenArgs->stop) && hasListenSocket )
+	while( listenArgs->instance->isRunning() && hasListenSocket )
 	{
 		cout<<"Listening..."<<endl;
 		//listen on listen socket
@@ -267,21 +161,8 @@ DWORD WINAPI listenForConnections(LPVOID args)
 			{ 
 				cout<<"Connection accepted..."<<endl;
 
-				//Get mutex to add the new connection to the list
-				WaitForSingleObject( listenArgs->sendArgs->mutex, INFINITE );
-				listenArgs->sendArgs->socketList->push_back(connection_sock);
-				ReleaseMutex( listenArgs->sendArgs->mutex);
-
-				listenArgs->recvArgs->push_back(new recvThreadArgs());
-
-				listenArgs->recvArgs->back()->messageHandler = listenArgs->messageHandler;
-				listenArgs->recvArgs->back()->instance = listenArgs->instance;
-				listenArgs->recvArgs->back()->socket = connection_sock;
-				listenArgs->recvArgs->back()->stop = listenArgs->stop;
-				//if passed error check
-				//start new thread and pass connected socket to thread
-				CreateThread(NULL,NULL,recv_service_connection,listenArgs->recvArgs->back(),NULL,NULL); 
-				
+				listenArgs->instance->addSendConnection(&connection_sock);
+				listenArgs->instance->addRecvConnection(&connection_sock); 				
 			}
 			else
 			{
@@ -364,3 +245,4 @@ bool startListenSocket(listenThreadArgs* listenArgs)
 
 	return true;
 }//END OF START LISTENING
+

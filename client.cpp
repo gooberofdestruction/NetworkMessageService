@@ -19,46 +19,18 @@ using namespace std;
 //***********************************
 //		CREATE CLIENT
 //***********************************
-client::client(string p_address, string dllName)
+client::client(std::string dllName, std::string p_address)
 {
-	address = p_address;
+	setAddress(p_address, CONNECTION_PORT);
 
-	//init thread args to NULL
-	recvArgs = new recvThreadArgs();
-	sendArgs = new sendThreadArgs();
-	sendArgs->socketList = new vector<SOCKET>();
-	dllArgs = new runDllThreadArgs();
-	//load dll
-	dllHandle = loadDll(dllName.c_str());
-	stop = false;
-	if(dllHandle == NULL)
+	if(setupDll(dllName) && setupConnections())
 	{
-		cout<<"Unable to load DLL at "<< dllName.c_str() <<endl;
-		stop = true;
-		return;
+		startServices();
 	}
-	//dll functions
-	hasMessagesToSend = (HASMSGFUNC)loadFunction(dllHandle, "hasMessagesToSend");
-	getNextSend = (NEXTMSG)loadFunction(dllHandle, "getNextSend");
-	messageHandler = (MSGHANDLER)loadFunction(dllHandle, "messageHandler");
-	createInstance = (CREATE)loadFunction(dllHandle, "createInstance");
-	destroyInstance = (DESTROY)loadFunction(dllHandle, "destroyInstance");
-	runInstance = (RUN)loadFunction(dllHandle, "runInstance");
-	stopInstance = (STOP)loadFunction(dllHandle, "stopInstance");
-	hasCmd = (HASCMDFUNC)loadFunction(dllHandle, "hasCmdMesssages");
-	getNextCmd = (NEXTCMD)loadFunction(dllHandle, "getNextCmd");
-	hasCmd = (HASCMDFUNC)loadFunction(dllHandle, "hasCmdMesssages");
-	getNextCmd = (NEXTCMD)loadFunction(dllHandle, "getNextCmd");
-
-	//create an instance
-	createInstance(&dllInstance);
-
-	dllArgs->stop = &stop;
-	dllArgs->instance = dllInstance;
-	dllArgs->runInstance = runInstance;
-	dllArgs->stopInstance = stopInstance;
-
-	CreateThread(NULL,NULL,run_dll, dllArgs,NULL,NULL);
+	else
+	{
+		stopServices();
+	}
 
 }//END OF CLIENT
 
@@ -67,33 +39,7 @@ client::client(string p_address, string dllName)
 //***********************************
 client::~client()
 {
-	quit();
-
-	//destroy client
-
-	//close socket
-	closeSocket();
-
-	if(dllHandle != NULL)
-	{
-		//dll destroy
-		destroyInstance(dllInstance);
-
-		//dll unload
-		unloadDll(dllHandle);
-	} 
-
-	//delete thread args
-	if(recvArgs != NULL)
-	{
-		delete recvArgs;
-	}
-
-	if(sendArgs != NULL)
-	{
-		delete sendArgs;
-	}
-
+	destroyData();
 }//END OF ~CLIENT
 
 //***********************************
@@ -115,41 +61,50 @@ void client::run()
 	//-----------------------------------------------------------------
 	//While socket is still open, change to still have valid sockets
 	//-----------------------------------------------------------------
-	while( !stop )
+	while( isRunning() )
 	{
 		printf("Waiting...\n");
 		//poll the dll for a message
-		poll = hasCmd(dllInstance);
+		poll = dllHasCmd();
 
 		//-----------------------------------------------------------------
 		//While socket is still open and there are messages to send. change to still have valid sockets to send on
 		//-----------------------------------------------------------------
-		if(!stop && poll ) 
+		if( isRunning() && poll ) 
 		{
-			message = getNextCmd(dllInstance);
+			message = dllGetNextCmd();
 
 			switch(message->msg)
 			{
 				case CMD_STOP:
 					printf("STOP!\n");
-					stop = true;
+					stopServices();
 				break;
 				case CMD_CONNECT:
 					printf("CONNECT!\n");
 					//connect
-					stop = !connectToServer(address);
+					connectServices();
+					if (!connectToServer(getAddress()))
+					{
+						stopServices();
+						disconnectServices();
+					}
+					else
+					{
+						startSendService();
+					}
 				break;
 				case CMD_DISCONNECT:
 					printf("DISCONNECT!\n");
+					disconnectServices();
 				break;
 				case CMD_NETWORK:
 					printf("NETWORK!\n Addr: %ud\n Port: %d\n",message->data.network.address,message->data.network.port);
-					//address = ""+message->data.network.address;
-					//port = ""+message->data.network.port;
+					setAddress(message->data.network.address,message->data.network.port);
 				break;
 				default:
 					printf("STOP!\n");
-					stop = true;
+					stopServices();
 				break;
 			};
 
@@ -165,50 +120,6 @@ void client::run()
 	//-----------------------------------------------------------------
 
 }//END OF RUN
-//***********************************
-//		STOP CLIENT
-//***********************************
-void client::quit()
-{
-	//dll stop
-	stopInstance(dllInstance);
-
-	closeSocket();
-}//END OF STOP
-
-//***********************************
-//		CLOSE CONNECTION
-//***********************************
-bool client::closeSocket()
-{
-	int iResult=0;
-	// shutdown the connection since no more data will be sent
-	
-	if(sendArgs->mutex != NULL)
-	{
-		WaitForSingleObject( sendArgs->mutex, INFINITE );
-		while(sendArgs->socketList->begin() != sendArgs->socketList->end())
-		{
-			cout<<"Destroying "<<*sendArgs->socketList->begin()<<endl;
-			iResult = shutdown(*sendArgs->socketList->begin(), SD_SEND);
-			if (iResult == SOCKET_ERROR) 
-			{
-				cout<<"shutdown failed: "<< WSAGetLastError()<<endl;
-				closesocket(*sendArgs->socketList->begin());
-				return false;
-			}
-
-			// cleanup
-			closesocket(*sendArgs->socketList->begin());
-
-			sendArgs->socketList->erase(sendArgs->socketList->begin());
-		}
-	
-		ReleaseMutex( sendArgs->mutex);
-	}
-	WSACleanup();
-	return true;
-}//END OF CLOSESOCKET
 
 //***********************************
 //		OPEN CONNECTION
@@ -223,7 +134,7 @@ bool client::connectToServer(string address)
     int iResult;
 
     // Initialize Winsock
-    iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
+    iResult = WSAStartup(MAKEWORD(2,2), getWsa());
     if (iResult != 0) 
 	{
         cout<<"WSAStartup failed: "<< iResult<<endl;
@@ -277,24 +188,8 @@ bool client::connectToServer(string address)
     } 
 	cout<<"Connection accepted..."<<endl;
 
-	recvArgs->socket = ConnectSocket;
-	recvArgs->messageHandler = messageHandler;
-	recvArgs->instance = dllInstance;
-
-	sendArgs->socketList = new vector<SOCKET>();
-	sendArgs->socketList->push_back(ConnectSocket);
-	sendArgs->instance = dllInstance;
-	sendArgs->pollQueue = hasMessagesToSend;
-	sendArgs->nextMessage = getNextSend;
-	sendArgs->mutex = CreateMutex (NULL, FALSE, NULL);
-	
-	stop = false;
-	
-	sendArgs->stop = &stop;
-	recvArgs->stop = &stop;
-
-	CreateThread(NULL,NULL,recv_service_connection,recvArgs,NULL,NULL);
-	CreateThread(NULL,NULL,send_service_connection,sendArgs,NULL,NULL);
+	addRecvConnection(&ConnectSocket);
+	addSendConnection(&ConnectSocket);
 
     return true;
 }// END OF CONNECTTOSERVER
